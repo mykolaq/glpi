@@ -80,10 +80,7 @@ class Item_Rack extends CommonDBRelation
         }
 
         $nb = 0;
-        if (
-            $_SESSION['glpishow_count_on_tabs']
-            && ($item instanceof CommonDBTM)
-        ) {
+        if ($_SESSION['glpishow_count_on_tabs']) {
             $nb = countElementsInTable(
                 self::getTable(),
                 ['racks_id'  => $item->getID()]
@@ -681,7 +678,7 @@ class Item_Rack extends CommonDBRelation
         if ($fixed_item) {
             echo Html::hidden('items_id', ['value' => $this->fields['items_id']]);
             $item = getItemForItemtype($this->fields['itemtype']);
-            if ($item->getFromDB($this->fields['items_id'])) {
+            if ($item !== false && $item->getFromDB($this->fields['items_id'])) {
                 echo $item->getLink();
             }
         } elseif (isset($this->fields['itemtype']) && !empty($this->fields['itemtype'])) {
