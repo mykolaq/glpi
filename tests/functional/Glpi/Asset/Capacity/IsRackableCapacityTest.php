@@ -89,12 +89,6 @@ class IsRackableCapacityTest extends DbTestCase
 
             $item = $this->createItem($classname, ['name' => __FUNCTION__, 'entities_id' => $root_entity_id]);
 
-            if ($has_capacity) {
-                $this->assertArrayHasKey('Item_Rack$1', $item->defineAllTabs());
-            } else {
-                $this->assertArrayNotHasKey('Item_Rack$1', $item->defineAllTabs());
-            }
-
             $so_keys = [
                 180, // Name
                 181, // Position

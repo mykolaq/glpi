@@ -1,0 +1,57 @@
+{#
+ # ---------------------------------------------------------------------
+ #
+ # GLPI - Gestionnaire Libre de Parc Informatique
+ #
+ # http://glpi-project.org
+ #
+ # @copyright 2015-2026 Teclib' and contributors.
+ # @licence   https://www.gnu.org/licenses/gpl-3.0.html
+ #
+ # ---------------------------------------------------------------------
+ #}
+
+<div class="d-flex align-items-center gap-2">
+    {% if breadcrumb|trim|length > 0 %}
+        <div class="flex-grow-1">{{ breadcrumb|raw }}</div>
+    {% endif %}
+
+    {% if can_update %}
+        {% if relation_id > 0 %}
+            <button type="button"
+                    class="btn btn-sm btn-icon btn-outline-secondary"
+                    title="{{ __('Edit rack relation') }}"
+                    aria-label="{{ __('Edit rack relation') }}"
+                    onclick="{{ modal_name }}.show();">
+                <i class="ti ti-pencil" aria-hidden="true"></i>
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-icon btn-outline-danger"
+                    title="{{ _x('button', 'Delete permanently') }}"
+                    aria-label="{{ _x('button', 'Delete permanently') }}"
+                    onclick="if (confirm('{{ __('Confirm the final deletion?')|e('js') }}')) {
+                        fetch('{{ delete_url|e('js') }}', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                            body: new URLSearchParams({
+                                purge: '1',
+                                id: '{{ relation_id }}',
+                                _glpi_csrf_token: '{{ csrf_token|e('js') }}',
+                                _from_itemtype: '{{ from_itemtype|e('js') }}',
+                                _from_items_id: '{{ from_items_id }}'
+                            })
+                        }).then(() => window.location.reload());
+                    }">
+                <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+        {% else %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    onclick="{{ modal_name }}.show();">
+                <i class="ti ti-server-2" aria-hidden="true"></i>
+                <span>{{ __('Add to rack') }}</span>
+            </button>
+        {% endif %}
+    {% endif %}
+</div>
+{{ modal_script|raw }}

@@ -77,7 +77,6 @@ class PassiveDCEquipment extends CommonDBTM implements AssignableItemInterface, 
         $this->addDefaultFormTab($ong)
          ->addImpactTab($ong, $options)
          ->addStandardTab(Socket::class, $ong, $options)
-         ->addStandardTab(Item_Rack::class, $ong, $options)
          ->addStandardTab(Infocom::class, $ong, $options)
          ->addStandardTab(Contract_Item::class, $ong, $options)
          ->addStandardTab(Document_Item::class, $ong, $options)

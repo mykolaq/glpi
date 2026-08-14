@@ -113,7 +113,15 @@
                                       ])|raw }}
                                   {% endif %}
                               {% endset %}
-                              {% if dc_breadcrumbs|trim|length > 0 %}
+                              {% set rack_placement = call('Item_Rack::renderRackPlacement', [item]) %}
+                              {% if rack_placement|trim|length > 0 %}
+                                  {{ fields.htmlField(
+                                      '',
+                                      rack_placement,
+                                      __('Data center position'),
+                                  ) }}
+                                  {% set conditions_met = conditions_met + 1 %}
+                              {% elseif dc_breadcrumbs|trim|length > 0 %}
                                   {{ fields.htmlField(
                                       '',
                                       dc_breadcrumbs,

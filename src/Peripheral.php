@@ -127,7 +127,6 @@ class Peripheral extends CommonDBTM implements AssignableItemInterface, DCBreadc
         $this->addStandardTab(Item_Line::class, $ong, $options);
         $this->addStandardTab(Asset_PeripheralAsset::class, $ong, $options);
         $this->addStandardTab(NetworkPort::class, $ong, $options);
-        $this->addStandardTab(Item_Rack::class, $ong, $options);
         $this->addStandardTab(Socket::class, $ong, $options);
         $this->addStandardTab(Infocom::class, $ong, $options);
         $this->addStandardTab(Contract_Item::class, $ong, $options);

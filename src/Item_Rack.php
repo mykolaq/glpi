@@ -36,6 +36,7 @@
 use Glpi\Application\View\TemplateRenderer;
 
 use function Safe\json_encode;
+use function Safe\preg_replace;
 
 class Item_Rack extends CommonDBRelation
 {
@@ -55,32 +56,11 @@ class Item_Rack extends CommonDBRelation
 
     public function getTabNameForItem(CommonGLPI $item, $withtemplate = 0)
     {
-        global $CFG_GLPI;
-
-        if (
-            $item instanceof CommonDBTM
-            && !$item instanceof Rack
-            && in_array($item::class, $CFG_GLPI['rackable_types'], true)
-            && !$item->isTemplate()
-        ) {
-            $nb = 0;
-            if ($_SESSION['glpishow_count_on_tabs']) {
-                $nb = countElementsInTable(self::getTable(), [
-                    'itemtype'    => $item::class,
-                    'items_id'    => $item->getID(),
-                    'is_reserved' => 0,
-                ]);
-            }
-
-            return self::createTabEntry(Rack::getTypeName(1), $nb, Rack::class);
-        }
-
-        if (!$item instanceof Rack) {
-            return '';
-        }
-
         $nb = 0;
-        if ($_SESSION['glpishow_count_on_tabs']) {
+        if (
+            $_SESSION['glpishow_count_on_tabs']
+            && ($item instanceof CommonDBTM)
+        ) {
             $nb = countElementsInTable(
                 self::getTable(),
                 ['racks_id'  => $item->getID()]
@@ -95,44 +75,71 @@ class Item_Rack extends CommonDBRelation
 
     public static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0)
     {
-        if ($item instanceof Rack) {
-            return self::showItems($item);
-        }
-
-        return $item instanceof CommonDBTM && self::showForItem($item);
-    }
-
-    /**
-     * Display the rack placement form from a rackable item's tab.
-     */
-    public static function showForItem(CommonDBTM $item): bool
-    {
-        global $CFG_GLPI;
-
-        if (
-            !$item->getID()
-            || !in_array($item::class, $CFG_GLPI['rackable_types'], true)
-            || !$item->can($item->getID(), READ)
-        ) {
+        if (!$item instanceof Rack) {
             return false;
         }
 
-        $item_rack = new self();
-        $item_rack->getFromDBByCrit([
-            'itemtype'    => $item::class,
-            'items_id'    => $item->getID(),
+        return self::showItems($item);
+    }
+
+    /**
+     * Render the rack placement shown on the asset main form.
+     */
+    public static function renderRackPlacement(CommonDBTM $item): string
+    {
+        global $CFG_GLPI;
+
+        $items_id = $item->getID();
+        $itemtype = $item::class;
+        if (
+            $items_id <= 0
+            || $item->isTemplate()
+            || $item instanceof PDU
+            || !in_array($itemtype, $CFG_GLPI['rackable_types'], true)
+            || !method_exists($itemtype, 'renderDcBreadcrumb')
+            || !$item->can($items_id, READ)
+        ) {
+            return '';
+        }
+
+        $relation = new self();
+        $relation->getFromDBByCrit([
+            'itemtype'    => $itemtype,
+            'items_id'    => $items_id,
             'is_reserved' => 0,
         ]);
 
-        $item_rack->showForm($item_rack->getID() ?: -1, [
-            'itemtype'    => $item::class,
-            'items_id'    => $item->getID(),
-            'is_reserved' => 0,
-            '_fixed_item' => true,
-            'no_header'   => true,
-        ]);
+        $relation_id = $relation->getID();
+        $can_update = $item->can($items_id, UPDATE)
+            && Session::haveRight('datacenter', UPDATE)
+            && ($relation_id > 0 || $item->getParentEnclosure() === null);
+        $modal_name = 'rack_placement_' . preg_replace('/\W/', '_', $itemtype) . '_' . $items_id;
+        $modal_query = [
+            'ajax'           => 1,
+            '_fixed_item'    => 1,
+            'itemtype'       => $itemtype,
+            'items_id'       => $items_id,
+        ];
+        if ($relation_id > 0) {
+            $modal_query['id'] = $relation_id;
+        }
+        $modal_url = $CFG_GLPI['root_doc'] . '/front/item_rack.form.php?' . http_build_query($modal_query);
 
-        return true;
+        return TemplateRenderer::getInstance()->render('components/form/rack_placement.html.twig', [
+            'breadcrumb'    => $itemtype::renderDcBreadcrumb($items_id),
+            'relation_id'   => $relation_id,
+            'can_update'    => $can_update,
+            'modal_name'    => $modal_name,
+            'modal_script'  => $can_update ? Ajax::createModalWindow($modal_name, $modal_url, [
+                'display'     => false,
+                'modal_class' => 'modal-lg',
+                'title'       => $relation_id > 0 ? __('Edit rack relation') : __('Add to rack'),
+            ]) : '',
+            'delete_url'    => $CFG_GLPI['root_doc'] . '/front/item_rack.form.php',
+            'csrf_token'    => Session::getNewCSRFToken(),
+            'from_itemtype' => $itemtype,
+            'from_items_id' => $items_id,
+        ]);
     }
 
     public function getForbiddenStandardMassiveAction()
@@ -600,6 +607,11 @@ class Item_Rack extends CommonDBRelation
         $rand = mt_rand();
         $fixed_item = (bool) ($options['_fixed_item'] ?? false);
 
+        if ($fixed_item) {
+            echo Html::hidden('_from_itemtype', ['value' => $this->fields['itemtype']]);
+            echo Html::hidden('_from_items_id', ['value' => $this->fields['items_id']]);
+        }
+
         echo "<tr class='tab_bg_1'>";
         echo "<td><label for='dropdown_itemtype$rand'>" . __s('Item type') . "</label></td>";
         echo "<td>";
@@ -703,10 +715,66 @@ class Item_Rack extends CommonDBRelation
         echo "</td>";
         echo "</tr>";
 
+        $dcrooms_id = 0;
+        $datacenters_id = 0;
+        if ($rack->getID() > 0) {
+            $dcrooms_id = (int) $rack->fields['dcrooms_id'];
+            $dcroom = new DCRoom();
+            if ($dcroom->getFromDB($dcrooms_id)) {
+                $datacenters_id = (int) $dcroom->fields['datacenters_id'];
+            }
+        }
+
+        if ($fixed_item) {
+            echo "<tr class='tab_bg_1'>";
+            echo "<td><label for='dropdown__datacenters_id$rand'>" . htmlescape(Datacenter::getTypeName(1)) . "</label></td>";
+            echo "<td>";
+            Datacenter::dropdown([
+                'name'  => '_datacenters_id',
+                'value' => $datacenters_id,
+                'rand'  => $rand,
+            ]);
+            echo "</td>";
+            echo "<td><label for='dropdown__dcrooms_id$rand'>" . htmlescape(DCRoom::getTypeName(1)) . "</label></td>";
+            echo "<td id='rack_dcroom_$rand'>";
+            self::showDCRoomDropdown(
+                $datacenters_id,
+                $dcrooms_id,
+                $rand,
+                $this->fields['itemtype'],
+                (int) $this->fields['items_id']
+            );
+            echo "</td>";
+            echo "</tr>";
+
+            Ajax::updateItemOnSelectEvent(
+                "dropdown__datacenters_id$rand",
+                "rack_dcroom_$rand",
+                $CFG_GLPI['root_doc'] . '/ajax/rackLocation.php',
+                [
+                    'level'     => 'dcroom',
+                    'parent_id' => '__VALUE__',
+                    'itemtype'  => $this->fields['itemtype'],
+                    'items_id'  => $this->fields['items_id'],
+                    'rand'      => $rand,
+                ]
+            );
+        }
+
         echo "<tr class='tab_bg_1'>";
         echo "<td><label for='dropdown_racks_id$rand'>" . htmlescape(Rack::getTypeName(1)) . "</label></td>";
-        echo "<td>";
-        Rack::dropdown(['value' => $this->fields["racks_id"], 'rand' => $rand]);
+        echo "<td id='rack_select_$rand'>";
+        if ($fixed_item) {
+            self::showRackDropdown(
+                $dcrooms_id,
+                (int) $this->fields['racks_id'],
+                $rand,
+                $this->fields['itemtype'],
+                (int) $this->fields['items_id']
+            );
+        } else {
+            Rack::dropdown(['value' => $this->fields['racks_id'], 'rand' => $rand]);
+        }
         echo "</td>";
         echo "<td><label for='dropdown_position$rand'>" . __s('Position') . "</label></td>";
         echo "<td id='rack_position_$rand'>";
@@ -720,18 +788,20 @@ class Item_Rack extends CommonDBRelation
         echo "</td>";
         echo "</tr>";
 
-        Ajax::updateItemOnSelectEvent(
-            "dropdown_racks_id$rand",
-            "rack_position_$rand",
-            $CFG_GLPI["root_doc"] . "/ajax/rackPosition.php",
-            [
-                'racks_id' => '__VALUE__',
-                'itemtype' => $this->fields['itemtype'],
-                'items_id' => $this->fields['items_id'],
-                'value'    => 0,
-                'rand'     => $rand,
-            ]
-        );
+        if (!$fixed_item) {
+            Ajax::updateItemOnSelectEvent(
+                "dropdown_racks_id$rand",
+                "rack_position_$rand",
+                $CFG_GLPI["root_doc"] . "/ajax/rackPosition.php",
+                [
+                    'racks_id' => '__VALUE__',
+                    'itemtype' => $this->fields['itemtype'],
+                    'items_id' => $this->fields['items_id'],
+                    'value'    => 0,
+                    'rand'     => $rand,
+                ]
+            );
+        }
 
         echo "<tr class='tab_bg_1'>";
         echo "<td><label for='dropdown_orientation$rand'>" . __s('Orientation (front rack point of view)') . "</label></td>";
@@ -859,6 +929,69 @@ class Item_Rack extends CommonDBRelation
             'used'  => $used,
             'rand'  => $rand ?? mt_rand(),
         ]);
+    }
+
+    /**
+     * Display the server room dropdown used by the rack placement modal.
+     */
+    public static function showDCRoomDropdown(
+        int $datacenters_id,
+        int $value,
+        int $rand,
+        string $itemtype,
+        int $items_id
+    ): void {
+        global $CFG_GLPI;
+
+        DCRoom::dropdown([
+            'name'      => '_dcrooms_id',
+            'value'     => $value,
+            'condition' => ['datacenters_id' => $datacenters_id > 0 ? $datacenters_id : -1],
+            'rand'      => $rand,
+        ]);
+        Ajax::updateItemOnSelectEvent(
+            "dropdown__dcrooms_id$rand",
+            "rack_select_$rand",
+            $CFG_GLPI['root_doc'] . '/ajax/rackLocation.php',
+            [
+                'level'     => 'rack',
+                'parent_id' => '__VALUE__',
+                'itemtype'  => $itemtype,
+                'items_id'  => $items_id,
+                'rand'      => $rand,
+            ]
+        );
+    }
+
+    /**
+     * Display the rack dropdown used by the rack placement modal.
+     */
+    public static function showRackDropdown(
+        int $dcrooms_id,
+        int $value,
+        int $rand,
+        string $itemtype,
+        int $items_id
+    ): void {
+        global $CFG_GLPI;
+
+        Rack::dropdown([
+            'value'     => $value,
+            'condition' => ['dcrooms_id' => $dcrooms_id > 0 ? $dcrooms_id : -1],
+            'rand'      => $rand,
+        ]);
+        Ajax::updateItemOnSelectEvent(
+            "dropdown_racks_id$rand",
+            "rack_position_$rand",
+            $CFG_GLPI['root_doc'] . '/ajax/rackPosition.php',
+            [
+                'racks_id' => '__VALUE__',
+                'itemtype' => $itemtype,
+                'items_id' => $items_id,
+                'value'    => 0,
+                'rand'     => $rand,
+            ]
+        );
     }
 
     public function post_getEmpty()

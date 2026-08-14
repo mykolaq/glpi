@@ -42,23 +42,36 @@ use Rack;
 
 class Item_RackTest extends DbTestCase
 {
-    public function testRackableAssetTypesExposeRackTab(): void
+    public function testRenderRackPlacementOnAssetForm(): void
     {
-        $rackable_types = [
-            \Computer::class,
-            \Monitor::class,
-            \NetworkEquipment::class,
-            \Peripheral::class,
-            \Enclosure::class,
-            \PDU::class,
-            \PassiveDCEquipment::class,
-        ];
+        $computer = $this->createItem('Computer', [
+            'name'        => 'Rack placement asset',
+            'entities_id' => 0,
+        ]);
 
-        foreach ($rackable_types as $rackable_type) {
-            $item = new $rackable_type();
-            $item->fields['id'] = 0;
-            $this->assertArrayHasKey('Item_Rack$1', $item->defineTabs());
-        }
+        $html = \Item_Rack::renderRackPlacement($computer);
+        $this->assertStringContainsString('Add to rack', $html);
+        $this->assertStringContainsString('itemtype=Computer', $html);
+
+        $rack = $this->createItem('Rack', [
+            'name'         => 'Rack placement target',
+            'number_units' => 42,
+            'entities_id'  => 0,
+        ]);
+        $relation = $this->createItem('Item_Rack', [
+            'racks_id'    => $rack->getID(),
+            'position'    => 12,
+            'orientation' => Rack::FRONT,
+            'itemtype'    => 'Computer',
+            'items_id'    => $computer->getID(),
+        ]);
+
+        $html = \Item_Rack::renderRackPlacement($computer);
+        $this->assertStringContainsString('Rack placement target', $html);
+        $this->assertStringContainsString('(U12)', $html);
+        $this->assertStringContainsString('ti-pencil', $html);
+        $this->assertStringContainsString('ti-trash', $html);
+        $this->assertStringContainsString('id=' . $relation->getID(), $html);
     }
 
     /**

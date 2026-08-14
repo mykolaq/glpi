@@ -92,7 +92,6 @@ class PDU extends CommonDBTM implements AssignableItemInterface, DCBreadcrumbInt
          ->addStandardTab(Plug::class, $ong, $options)
          ->addStandardTab(Item_Devices::class, $ong, $options)
          ->addStandardTab(NetworkPort::class, $ong, $options)
-         ->addStandardTab(Item_Rack::class, $ong, $options)
          ->addStandardTab(Infocom::class, $ong, $options)
          ->addStandardTab(Contract_Item::class, $ong, $options)
          ->addStandardTab(Document_Item::class, $ong, $options)
