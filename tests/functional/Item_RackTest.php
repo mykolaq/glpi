@@ -42,6 +42,24 @@ use Rack;
 
 class Item_RackTest extends DbTestCase
 {
+    public function testRackableAssetTypesExposeRackTab(): void
+    {
+        $rackable_types = [
+            \Computer::class,
+            \Monitor::class,
+            \NetworkEquipment::class,
+            \Peripheral::class,
+            \Enclosure::class,
+            \PDU::class,
+            \PassiveDCEquipment::class,
+        ];
+
+        foreach ($rackable_types as $rackable_type) {
+            $item = new $rackable_type();
+            $this->assertArrayHasKey('Item_Rack$1', $item->defineTabs());
+        }
+    }
+
     /**
      * Models provider
      *

@@ -149,6 +149,7 @@ class Computer extends CommonDBTM implements AssignableItemInterface, DCBreadcru
          ->addStandardTab(Item_Environment::class, $ong, $options)
          ->addStandardTab(Asset_PeripheralAsset::class, $ong, $options)
          ->addStandardTab(NetworkPort::class, $ong, $options)
+         ->addStandardTab(Item_Rack::class, $ong, $options)
          ->addStandardTab(Socket::class, $ong, $options)
          ->addStandardTab(Item_RemoteManagement::class, $ong, $options)
          ->addStandardTab(Infocom::class, $ong, $options)

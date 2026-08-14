@@ -34,6 +34,7 @@
 
 namespace Glpi\Asset\Capacity;
 
+use CommonGLPI;
 use Glpi\Asset\CapacityConfig;
 use Item_Rack;
 use Override;
@@ -81,6 +82,7 @@ class IsRackableCapacity extends AbstractCapacity
     public function onClassBootstrap(string $classname, CapacityConfig $config): void
     {
         $this->registerToTypeConfig('rackable_types', $classname);
+        CommonGLPI::registerStandardTab($classname, Item_Rack::class, 50);
     }
 
     public function onCapacityDisabled(string $classname, CapacityConfig $config): void

@@ -55,6 +55,30 @@ class Item_Rack extends CommonDBRelation
 
     public function getTabNameForItem(CommonGLPI $item, $withtemplate = 0)
     {
+        global $CFG_GLPI;
+
+        if (
+            $item instanceof CommonDBTM
+            && !$item instanceof Rack
+            && in_array($item::class, $CFG_GLPI['rackable_types'], true)
+            && !$item->isTemplate()
+        ) {
+            $nb = 0;
+            if ($_SESSION['glpishow_count_on_tabs']) {
+                $nb = countElementsInTable(self::getTable(), [
+                    'itemtype'    => $item::class,
+                    'items_id'    => $item->getID(),
+                    'is_reserved' => 0,
+                ]);
+            }
+
+            return self::createTabEntry(Rack::getTypeName(1), $nb, Rack::class);
+        }
+
+        if (!$item instanceof Rack) {
+            return '';
+        }
+
         $nb = 0;
         if (
             $_SESSION['glpishow_count_on_tabs']
@@ -74,11 +98,44 @@ class Item_Rack extends CommonDBRelation
 
     public static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0)
     {
-        if (!$item instanceof Rack) {
+        if ($item instanceof Rack) {
+            return self::showItems($item);
+        }
+
+        return $item instanceof CommonDBTM && self::showForItem($item);
+    }
+
+    /**
+     * Display the rack placement form from a rackable item's tab.
+     */
+    public static function showForItem(CommonDBTM $item): bool
+    {
+        global $CFG_GLPI;
+
+        if (
+            !$item->getID()
+            || !in_array($item::class, $CFG_GLPI['rackable_types'], true)
+            || !$item->can($item->getID(), READ)
+        ) {
             return false;
         }
 
-        return self::showItems($item);
+        $item_rack = new self();
+        $item_rack->getFromDBByCrit([
+            'itemtype'    => $item::class,
+            'items_id'    => $item->getID(),
+            'is_reserved' => 0,
+        ]);
+
+        $item_rack->showForm($item_rack->getID() ?: -1, [
+            'itemtype'    => $item::class,
+            'items_id'    => $item->getID(),
+            'is_reserved' => 0,
+            '_fixed_item' => true,
+            'no_header'   => true,
+        ]);
+
+        return true;
     }
 
     public function getForbiddenStandardMassiveAction()
@@ -544,12 +601,16 @@ class Item_Rack extends CommonDBRelation
         $rack->getFromDB($this->fields['racks_id']);
 
         $rand = mt_rand();
+        $fixed_item = (bool) ($options['_fixed_item'] ?? false);
 
         echo "<tr class='tab_bg_1'>";
         echo "<td><label for='dropdown_itemtype$rand'>" . __s('Item type') . "</label></td>";
         echo "<td>";
 
-        if (isset($options['_onlypdu']) && $options['_onlypdu']) {
+        if ($fixed_item) {
+            echo Html::hidden('itemtype', ['value' => $this->fields['itemtype']]);
+            echo htmlescape($this->fields['itemtype']::getTypeName(1));
+        } elseif (isset($options['_onlypdu']) && $options['_onlypdu']) {
             $this->fields['itemtype'] = 'PDU';
             echo Html::hidden(
                 'itemtype',
@@ -617,7 +678,13 @@ class Item_Rack extends CommonDBRelation
         echo "</td>";
         echo "<td><label for='dropdown_items_id$rand'>" . _sn('Item', 'Items', 1) . "</label></td>";
         echo "<td id='items_id'>";
-        if (isset($this->fields['itemtype']) && !empty($this->fields['itemtype'])) {
+        if ($fixed_item) {
+            echo Html::hidden('items_id', ['value' => $this->fields['items_id']]);
+            $item = getItemForItemtype($this->fields['itemtype']);
+            if ($item->getFromDB($this->fields['items_id'])) {
+                echo $item->getLink();
+            }
+        } elseif (isset($this->fields['itemtype']) && !empty($this->fields['itemtype'])) {
             $itemtype = $this->fields['itemtype'];
             $itemtype = getItemForItemtype($itemtype);
             $itemtype::dropdown([
@@ -645,20 +712,29 @@ class Item_Rack extends CommonDBRelation
         Rack::dropdown(['value' => $this->fields["racks_id"], 'rand' => $rand]);
         echo "</td>";
         echo "<td><label for='dropdown_position$rand'>" . __s('Position') . "</label></td>";
-        echo "<td >";
-        Dropdown::showNumber(
-            'position',
-            [
-                'value'  => $this->fields["position"],
-                'min'    => 1,
-                'max'    => $rack->fields['number_units'],
-                'step'   => 1,
-                'used'   => $rack->getFilled($this->fields['itemtype'], $this->fields['items_id']),
-                'rand'   => $rand,
-            ]
+        echo "<td id='rack_position_$rand'>";
+        self::showPositionDropdown(
+            (int) $this->fields['racks_id'],
+            $this->fields['itemtype'],
+            (int) $this->fields['items_id'],
+            (int) $this->fields['position'],
+            $rand
         );
         echo "</td>";
         echo "</tr>";
+
+        Ajax::updateItemOnSelectEvent(
+            "dropdown_racks_id$rand",
+            "rack_position_$rand",
+            $CFG_GLPI["root_doc"] . "/ajax/rackPosition.php",
+            [
+                'racks_id' => '__VALUE__',
+                'itemtype' => $this->fields['itemtype'],
+                'items_id' => $this->fields['items_id'],
+                'value'    => 0,
+                'rand'     => $rand,
+            ]
+        );
 
         echo "<tr class='tab_bg_1'>";
         echo "<td><label for='dropdown_orientation$rand'>" . __s('Orientation (front rack point of view)') . "</label></td>";
@@ -706,7 +782,8 @@ class Item_Rack extends CommonDBRelation
         echo "<td><label for='dropdown_is_reserved$rand'>" . __s('Reserved position?') . "</label></td>";
         echo "<td>";
 
-        echo Html::scriptBlock("
+        if (!$fixed_item) {
+            echo Html::scriptBlock("
          var toggleUsed = function(reserved) {
             if (reserved == 1) {
                $('#used_$rand').val('" . json_encode($used_reserved) . "');
@@ -718,41 +795,73 @@ class Item_Rack extends CommonDBRelation
             $('#dropdown_itemtype$rand').trigger('change');
          }
       ");
-        Dropdown::showYesNo(
-            'is_reserved',
-            $this->fields['is_reserved'],
-            -1,
-            [
-                'rand'      => $rand,
-                'on_change' => 'toggleUsed(this.value)',
-            ]
-        );
+            Dropdown::showYesNo(
+                'is_reserved',
+                $this->fields['is_reserved'],
+                -1,
+                [
+                    'rand'      => $rand,
+                    'on_change' => 'toggleUsed(this.value)',
+                ]
+            );
 
-        $entities = $rack->fields['entities_id'];
-        if ($rack->fields['is_recursive']) {
-            $entities = getSonsOf('glpi_entities', $entities);
+            $entities = $rack->fields['entities_id'];
+            if ($rack->fields['is_recursive']) {
+                $entities = getSonsOf('glpi_entities', $entities);
+            }
+
+            Ajax::updateItemOnSelectEvent(
+                ["dropdown_itemtype$rand", "dropdown_is_reserved$rand", "used_$rand"],
+                "items_id",
+                $CFG_GLPI["root_doc"] . "/ajax/dropdownAllItems.php",
+                [
+                    'idtable'         => '__VALUE0__',
+                    'name'            => 'items_id',
+                    'value'           => $this->fields['items_id'],
+                    'rand'            => $rand,
+                    'is_reserved'     => '__VALUE1__',
+                    'used'            => '__VALUE2__',
+                    'entity_restrict' => $entities,
+                ]
+            );
+        } else {
+            echo Html::hidden('is_reserved', ['value' => 0]);
+            echo __s('No');
         }
-
-        Ajax::updateItemOnSelectEvent(
-            ["dropdown_itemtype$rand", "dropdown_is_reserved$rand", "used_$rand"],
-            "items_id",
-            $CFG_GLPI["root_doc"] . "/ajax/dropdownAllItems.php",
-            [
-                'idtable'         => '__VALUE0__',
-                'name'            => 'items_id',
-                'value'           => $this->fields['items_id'],
-                'rand'            => $rand,
-                'is_reserved'     => '__VALUE1__',
-                'used'            => '__VALUE2__',
-                'entity_restrict' => $entities,
-            ]
-        );
         echo "</td>";
         echo "</tr>";
 
         $this->showFormButtons($options);
 
         return true;
+    }
+
+    /**
+     * Display a rack position dropdown.
+     */
+    public static function showPositionDropdown(
+        int $racks_id,
+        string $itemtype,
+        int $items_id,
+        int $value = 0,
+        ?int $rand = null
+    ): void {
+        $rack = new Rack();
+        $number_units = 0;
+        $used = [];
+        if ($rack->getFromDB($racks_id)) {
+            $number_units = (int) $rack->fields['number_units'];
+            $used = $rack->getFilled($itemtype, $items_id);
+        }
+
+        Dropdown::showNumber('position', [
+            'value' => $value,
+            'min'   => $number_units > 0 ? 1 : 0,
+            'max'   => $number_units,
+            'step'  => 1,
+            'used'  => $used,
+            'rand'  => $rand ?? mt_rand(),
+        ]);
     }
 
     public function post_getEmpty()
