@@ -56,6 +56,7 @@ class Item_RackTest extends DbTestCase
 
         foreach ($rackable_types as $rackable_type) {
             $item = new $rackable_type();
+            $item->fields['id'] = 0;
             $this->assertArrayHasKey('Item_Rack$1', $item->defineTabs());
         }
     }
